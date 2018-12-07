@@ -1,8 +1,10 @@
-import re
 import datetime
+import pprint
+import re
+from typing import List, Dict, Tuple, Union
 
-
-test_data_s = """\
+# test data
+test_data_s: str = """\
 [1518-11-01 00:00] Guard #10 begins shift
 [1518-11-01 00:05] falls asleep
 [1518-11-01 00:25] wakes up
@@ -21,52 +23,71 @@ test_data_s = """\
 [1518-11-05 00:45] falls asleep
 [1518-11-05 00:55] wakes up"""
 
-test_data = test_data_s.split('\n')
+test_data: List[str] = test_data_s.split('\n')
+
+#
+# Handy Types
+#
+
+EventTime = datetime.datetime  # incl. ymdhm
+Day = datetime.datetime        # only  ymd
+# 0 = asleep, 1 = awake
+GuardState = int
+GuardID = int
+# action strings -> either int or bool (depending on key)
+ParsedAction = Dict[str, Union[GuardID, str]]
+# date/time -> action that happened starting then
+ParsedEvent = Tuple[EventTime, ParsedAction]
 
 
-def parse_line(inp):
+def parse_line(inp: str) -> ParsedEvent:
     """ Returns (year,month,day,hour,min,action) """
     r = re.match(r'\[(\d+)\-(\d+)\-(\d+) (\d+):(\d+)\] (.+)', inp)
-    t = list(r.groups())
-    t[:5] = map(int, t[:5])
+    t: List[str] = list(r.groups())
+    ymd: List[int] = map(lambda x: int(x), t[:5])
+    dt = datetime.datetime(*ymd)
 
     i = re.match(r'Guard #(\d+) begins shift', t[5])
     if i:
-        t6 = {'Guard': int(i.group(1))}
+        p = {'Guard': int(i.group(1))}
     elif re.match(r'falls asleep', t[5]):
-        t6 = {'falls asleep': True}
+        p = {'falls asleep': True}
     elif re.match(r'wakes up', t[5]):
-        t6 = {'wakes up': True}
+        p = {'wakes up': True}
     else:
-        print('foo')
         raise Exception('foobar')
 
-    t.append(t6)
-    return t
+    return (dt, p)
 
 
-def organize(xs):
-    m = {}
+def organize(xs: List[ParsedEvent]) -> \
+            Dict[datetime.datetime, List[ParsedEvent]]:
+    res = {}
     delta_day = datetime.timedelta(1)
     for x in xs:
-        og = datetime.datetime(*x[:5])
-        dt = datetime.datetime(*x[:5])
+        # fix hour 23 guard events to start at next day 00:00
+        dt = x[0]
         if dt.hour == 23:
             dt = dt + delta_day
-            dt.replace(hour=0)
-            print(f'replaced {og} with {dt}')
-        ymd = (x[0], x[1], x[2])
-        if ymd not in m:
-            m[ymd] = x[3:]
+            dt = dt.replace(hour=0, minute=0)
+        if dt not in res:
+            res[dt] = x
         else:
-            m[ymd].append(x[3:])
+            res[dt].append(x)
+    return res
 
-    # fix up the early guard arrivals
 
-    # sort events for the day
-    return m
+def process_events(xs: Dict[EventTime, List[ParsedEvent]]) -> \
+                   Tuple[GuardID, Dict[int, GuardState]]:
+    gid: int = -1
+    last_time: int = 0
+    for (dt, ys) in xs.items():
+        for a, v in ys:
+            if a == 'Guard':
+                gid = v
+            elif a == 'falls asleep':
 
 
 def main():
     xs = map(parse_line, test_data)
-    print(organize(xs))
+    pprint.pprint(organize(xs))
